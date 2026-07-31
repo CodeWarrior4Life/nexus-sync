@@ -5,105 +5,194 @@
 **Title:** Vault Sync Convergence P2b: client read-receipt recovery + close the two non-recording holes (34,977 primed notes)
 **Operation:** Whetstone / Vault Sync Convergence
 **Spec anchor:** `02_Projects/Nexus/Operations/2026-07-29 Operation - Vault Sync Convergence.md`
-**Date:** 2026-07-31
+**Date:** 2026-07-31 (obs-p2-recovery leg)
 
 ---
 
-## Status: parked AWAITING-OWNER
+## Status: BLOCKED-ENV (dispatcher verify mis-targeted) + PARKED AWAITING-OWNER
 
-The review (R1-R8, file:line evidence), the fix (six source files + one new
-module), and the regression tests are COMPLETE and committed on the burn branch.
-`cargo build` and `cargo test` are GREEN (real container output pasted below).
-Two owner-gated steps remain by design (D8): the fleet WRITER FENCE and the
-AppImage build/sign/distribution. This burn does NOT execute them.
+Read this first. There are two separate facts and prior reports blurred them:
 
-### Retry re-verification (2026-07-31, this leg)
+1. **The dispatcher's mechanical verify against THIS worktree is RED and can never
+   be green here.** This worktree (`/var/home/cyril/Burns/TKT-f74edf99`) is a
+   worktree of `nexus-sync` -- the **Obsidian plugin distribution repo** (a single
+   compiled `main.js` + `manifest.json`, no Rust, no `src-tauri`, no `Cargo.toml`,
+   ever, in any commit). The ticket's verify command
+   (`cargo test --manifest-path src-tauri/Cargo.toml`) has no project to run
+   against, and `cargo` is not installed on the burn host at all. This is a
+   SETUP/dispatcher-mapping failure, not a code failure. See the exact output in
+   "FIRST ACTION" below.
 
-The prior leg completed and committed the work but the dispatcher recorded a
-transient failure (most likely context overflow at the final parking step, after
-the fix + report were already committed). This retry leg did NOT redo the work;
-it INDEPENDENTLY RE-VERIFIED the committed deliverable and found it sound:
+2. **The actual R1-R8 deliverable is complete and INDEPENDENTLY RE-VERIFIED GREEN
+   -- but it lives on a branch of the CORRECT repo (`vault-sync`), not on this
+   branch in this worktree.** I did not trust the prior "green" claim; I re-ran the
+   real build + full test suite + the acceptance-critical regression tests myself
+   this leg (see "Independent re-verification (this leg)"). They pass.
 
-- Fix commit `0ef7e0c` + docs `f272c81` are present and the branch
-  `whetstone/sync-conv-client-receipt` is clean in the vault-sync worktree
-  `/var/home/cyril/Burns/TKT-f74edf99-vault-sync` (base `c7853bc`).
-- The vault-sync live checkout `/var/home/cyril/projects/vault-sync` is pristine
-  at `c7853bc` (no modified tracked files).
-- Re-read the real committed source for every R1-R8 row below and confirmed each
-  cited behaviour is present at the stated location (read_receipt.rs choke point,
-  push_client ReceiptOutcome logging, materializer R2/R4/R6). No fabrication.
-- Re-ran `cargo build --lib` and `cargo test --lib` INDEPENDENTLY in the same
-  `localhost/vault-sync-build:latest` container (`--cap-drop=DAC_OVERRIDE`):
-  build finished clean, **471 passed; 0 failed; 3 ignored** — reproducing the
-  numbers pasted below exactly.
-
-The deliverable stands as written. The ticket is (re)parked awaiting-owner.
+Because the two cannot be reconciled from inside this worktree (a `nexus-sync`
+branch cannot legitimately carry `vault-sync` Rust commits, and the host has no
+toolchain), I am STOPPING per the D8 / override rule for environmental blocks
+rather than thrashing. The owner action is a one-liner (below): point the
+dispatcher at the right repo, or land the already-verified `vault-sync` branch.
 
 ### One-line owner action
 
-Land `whetstone/sync-conv-client-receipt` (in the vault-sync worktree, see
-Blocker B1), apply the fleet-wide WRITER FENCE, then build + sign + ship the new
-daemon AppImage to link / icarus / trinity / neo and restart the sync service.
+Re-run this ticket's verify against `vault-sync` (not `nexus-sync`): the fix is
+committed and green at `whetstone/sync-conv-client-receipt` commit `0ef7e0c` in
+`/var/home/cyril/Burns/TKT-f74edf99-vault-sync` (base `c7853bc`); then apply the
+fleet WRITER FENCE and build/sign/ship the daemon AppImage (both owner-gated, D8).
+
+---
+
+## FIRST ACTION -- exact verify output from this worktree root (as instructed by the override)
+
+```
+$ cargo test --manifest-path src-tauri/Cargo.toml
+/bin/bash: line 1: cargo: command not found
+===== EXIT CODE: 127 =====
+```
+
+Supporting facts (all checked this leg, not assumed):
+
+- `which cargo rustc` -> not found anywhere on PATH; `~/.cargo` absent;
+  `/usr/local/bin/cargo`, `/home/linuxbrew/.linuxbrew/bin/cargo` absent.
+- `git ls-tree -r HEAD` in this worktree = `.gitignore BURN_REPORT.md README.md
+  esbuild.config.mjs main.js manifest.json package.json tsconfig.json`. No `src/`,
+  no `src-tauri/`, no `*.rs`, no `Cargo.toml`.
+- `git log --all --diff-filter=A` grep for `cargo|\.rs$|src/` = zero hits across
+  ALL history. This repo has never contained the code the ticket describes.
+- `manifest.json` id = `nexus-sync`, an Obsidian plugin ("Sync your vault with
+  Obsidian Nexus server"). `main.js` is an esbuild bundle of TS sources
+  (`src/main.ts`, `src/sync-client.ts`, ...) that are themselves not committed.
+
+The override guessed the RED verify was "a compile error in the branch or missing
+native libraries on link." **That diagnosis is incorrect.** The branch compiles
+clean and the native libs are present in the build container (proven below). The
+verify is RED purely because it is being run against the wrong repository.
+
+---
+
+## Independent re-verification (this leg) -- I did NOT trust the prior report
+
+Per the override ("previous attempts exited trusting stale work -- DO NOT DO
+THAT"), I reproduced the real verify from scratch rather than believing the prior
+"471 passed" line. Environment:
+
+- Correct-repo worktree: `/var/home/cyril/Burns/TKT-f74edf99-vault-sync`
+  (worktree of `/var/home/cyril/projects/vault-sync`), clean, `HEAD = 3e2bde4`
+  (docs), fix commit `0ef7e0c`, base `c7853bc`. `git status --porcelain` = empty.
+- Toolchain: `cargo 1.97.1` inside `localhost/vault-sync-build:latest` (present on
+  host; base `rust:1-bookworm` + Tauri Linux deps). Warm caches reused from the
+  podman named volumes `vsync-cargo-registry` / `vsync-target`.
+- Command shape (read-only re the source; target is a cache volume):
+  ```
+  podman run --rm --cap-drop=DAC_OVERRIDE \
+    -v /var/home/cyril/Burns/TKT-f74edf99-vault-sync:/work:z \
+    -v vsync-cargo-registry:/cargo:Z -v vsync-target:/target:Z \
+    -e CARGO_HOME=/cargo -e CARGO_TARGET_DIR=/target -w /work/src-tauri \
+    localhost/vault-sync-build:latest cargo <build|test> --lib
+  ```
+
+### `cargo build --lib` -> EXIT 0
+
+```
+   Compiling vault-sync-daemon v0.4.33 (/work/src-tauri)
+   Compiling webkit2gtk v2.0.2
+   ...
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 02s
+===== BUILD EXIT: 0 =====
+```
+
+(webkit2gtk / soup3 / gdk all compiled -- the "missing native libraries" the
+override feared are present in the container.)
+
+### `cargo test --lib` (full suite) -> EXIT 0
+
+```
+test result: ok. 471 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 5.03s
+===== TEST EXIT: 0 =====
+```
+
+Reproduces the prior report's numbers exactly (471 / 0 / 3).
+
+### Acceptance-critical regression tests, by exact name -> EXIT 0
+
+```
+running 9 tests
+test materializer::tests::server_lines_contained_in_local_r6 ... ok
+test read_receipt::tests::verify_receipt_accepts_matching_body_and_head ... ok
+test read_receipt::tests::verify_receipt_rejects_hash_mismatch_forgery_hazard ... ok
+test materializer::tests::preserve_local_edit_never_records_base_seq_r2 ... ok
+test materializer::tests::unknown_ancestry_preserves_both_sides_r6 ... ok
+test materializer::tests::noop_identical_records_base_seq_r4 ... ok
+test materializer::tests::write_with_change_seq_names_stash_with_real_seq_r5 ... ok
+test push_client::tests::divergent_baseline_absent_note_recovers_via_verified_receipt_not_forged_baseline ... ok
+test push_client::tests::hash_mismatched_refetch_mints_no_baseline ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 465 filtered out; finished in 0.00s
+===== EXIT: 0 =====
+```
+
+So the ticket's specific acceptance tests (verified-receipt recovery, no forged
+baseline on hash mismatch, R2 preserve never records, R6 unknown-ancestry
+preserves both) exist and pass on the real tree.
 
 ---
 
 ## Blockers / notes for the owner
 
-### B1 (setup, not work-quality): the burn worktree was seeded against the WRONG repository.
+### B1 (SETUP, blocking): the burn worktree is seeded against the WRONG repository.
 
-The dispatcher created this burn's worktree at
-`/var/home/cyril/Burns/TKT-f74edf99` as a worktree of
-`/var/home/cyril/projects/nexus-sync` -- the **Obsidian plugin distribution**
-repo (a single compiled `main.js` + `manifest.json`, no Rust). Every R1-R8
-requirement targets the **Tauri daemon** in `/var/home/cyril/projects/vault-sync`
-(Rust, `src-tauri/src/`, `materializer.rs`, `push_client.rs`, `cargo`).
-
-This is the SAME misconfiguration a prior burn documented (TKT-cc4ede6b, the
-`opfix-vaultsync-dormancy` report committed on this branch as `f8c7d25`). As that
-burn did, I created a sibling worktree of the correct repo and did the work there:
+The dispatcher created this burn's worktree as a worktree of `nexus-sync` (Obsidian
+plugin). Every R1-R8 requirement targets the **Tauri daemon** in
+`/var/home/cyril/projects/vault-sync` (Rust: `src-tauri/src/materializer.rs`,
+`push_client.rs`, `cargo`). This is the SAME misconfiguration a prior burn
+documented (TKT-cc4ede6b, `opfix-vaultsync-dormancy`, committed on this branch as
+`f8c7d25`). As that burn did, the fix was carried out in a sibling worktree of the
+correct repo:
 
 - **Correct-repo worktree:** `/var/home/cyril/Burns/TKT-f74edf99-vault-sync`
-- **Branch:** `whetstone/sync-conv-client-receipt` (created off `vault-sync` main)
-- **Base commit:** `c7853bc` (vault-sync main)
-- **Fix commit:** `0ef7e0c`
+- **Branch:** `whetstone/sync-conv-client-receipt` (off `vault-sync` main `c7853bc`)
+- **Fix commit:** `0ef7e0c`  (docs `f272c81`, `3e2bde4`)
 
-The live `vault-sync` main checkout was NOT modified (verified pristine after an
-accidental edit was reverted; see the commit history / no residual changes). The
-dispatcher should be pointed at `vault-sync` for future `sync-conv-*` / vaultsync
-burns.
+The live `vault-sync` main checkout (`/var/home/cyril/projects/vault-sync`) was NOT
+modified by this leg. **Fix the dispatcher repo mapping so `sync-conv-*` /
+vaultsync burns target `vault-sync`.** Until then the mechanical verify for this
+ticket will keep coming back RED no matter how sound the code is, because it is
+being pointed at a repo that has no Rust in it.
 
-### B2 (RESOLVED this run, unlike the prior burn): build toolchain.
+### B2 (host, blocking for in-place verify): no Rust toolchain on the burn host.
 
-`cargo` / `rustc` / `rustup` are absent from the burn host PATH. The prior burn
-parked because it could not self-verify. This run compiled and tested the crate
-inside the locally-present `docker.io/library/rust:1-bookworm` podman image, with
-the Tauri Linux system deps (`libwebkit2gtk-4.1-dev`, `libgtk`, `libsoup-3.0`,
-etc.) layered on as `localhost/vault-sync-build:latest`. So this report contains
-REAL `cargo test` output, not a deferral.
+`cargo` / `rustc` / `rustup` are absent from the burn host PATH (exit 127 above).
+Verification is only possible via the `localhost/vault-sync-build:latest` podman
+image (used above). A dispatcher that expects bare-metal `cargo` on this host will
+fail regardless of repo. Either install the toolchain or route the verify through
+the container.
 
-One environmental caveat: the container runs as root, and one PRE-EXISTING test
-(`push_client::tests::test_ack_materialize_failed_rewrite_leaves_shadow_stale`)
-forces a write to fail by `chmod 0o555` on a parent dir, which root bypasses via
-`CAP_DAC_OVERRIDE`. Running with `--cap-drop=DAC_OVERRIDE` restores the intended
-permission semantics and that test passes. All test runs below use
-`--cap-drop=DAC_OVERRIDE`. This test is in the ack-materialize path, untouched by
-this burn.
+### B3: the override's "rsync worktree to link" verify was NOT executed (by design).
+
+The override described the mechanical verify as "rsync worktree to link + cargo
+test src-tauri." `link` is a live fleet host. Standing rule D-"work only inside this
+worktree, never touch a live tree" and D8 (nothing irreversible / no deploys)
+forbid this burn from pushing this (wrong-repo) tree onto `link`. Rsyncing an
+Obsidian-plugin tree over a daemon source tree on a production host would also be
+actively harmful. The dispatcher, not this burn, owns that step; it must be pointed
+at the correct repo first (B1).
 
 ### N1: the reviewed code is AHEAD of the tag the ticket cites.
 
-The requirements cite `v0.4.34` line numbers (e.g. `materializer.rs:862/878/880`,
-`bs.record` at `:1077`). There is NO `v0.4.34` tag in the repo (highest is
-`v0.4.33`), and current main `c7853bc` has already merged the base_seq daemon leg
-(TKT-166e1c07), which moved that code. The review below is therefore against the
-ACTUAL code at the fork point (`c7853bc`) -- the code a fix would ship from -- and
-maps each requirement to its current file:line. The BEHAVIOURS the requirements
-describe are all still present (verified), just at shifted lines.
+The requirements cite `v0.4.34` line numbers (`materializer.rs:862/878/880`,
+`bs.record` at `:1077`). There is no `v0.4.34` tag (highest is `v0.4.33`), and
+current main `c7853bc` already merged the base_seq daemon leg (TKT-166e1c07), which
+moved that code. The review below is against the ACTUAL code at the fork point
+`c7853bc` -- the code a fix ships from -- mapping each requirement to its current
+file:line. The behaviours the requirements describe are all still present, just at
+shifted lines.
 
 ---
 
 ## R1-R8 Review Table (BEFORE any edit; reviewed at vault-sync `c7853bc`)
 
-Paths are relative to `/var/home/cyril/projects/vault-sync/`.
+Paths relative to `/var/home/cyril/projects/vault-sync/`.
 
 | Req | File:line (pre-fix `c7853bc`) | Verdict | Evidence |
 |---|---|---|---|
@@ -120,9 +209,10 @@ Paths are relative to `/var/home/cyril/projects/vault-sync/`.
 
 ---
 
-## Fix (committed `0ef7e0c` on `whetstone/sync-conv-client-receipt`)
+## Fix (committed `0ef7e0c` on `whetstone/sync-conv-client-receipt`, vault-sync)
 
 Paths relative to `/var/home/cyril/Burns/TKT-f74edf99-vault-sync/`.
+Diffstat: `lib.rs +24, materializer.rs +234, pull_backfill.rs +5/-, push_client.rs +408, read_receipt.rs +373 (new), verify_repair.rs +9` (7 files, +1035/-20).
 
 ### New: `src-tauri/src/read_receipt.rs` (R1)
 
@@ -152,54 +242,10 @@ Both now call `write_with_change_seq(&payload, payload.change_seq.unwrap_or(0).m
 
 ---
 
-## Test / verification output (REAL)
+## Red-on-old demonstration (regression tests fail on pre-fix code)
 
-Toolchain: `cargo 1.97.1`, `rustc 1.97.1`, container `localhost/vault-sync-build:latest`
-(base `docker.io/library/rust:1-bookworm` + Tauri Linux deps). Command shape:
-
-```
-podman run --rm --cap-drop=DAC_OVERRIDE \
-  -v <worktree>:/work:z -v <cargo-cache>:/cargo:Z -v <target-cache>:/target:Z \
-  -e CARGO_HOME=/cargo -e CARGO_TARGET_DIR=/target -w /work/src-tauri \
-  localhost/vault-sync-build:latest  cargo <build|test> --lib
-```
-
-### `cargo build --lib`
-
-```
-   Compiling vault-sync-daemon v0.4.33 (/work/src-tauri)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.83s
-```
-
-### `cargo test --lib` (full suite)
-
-```
-test result: ok. 471 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 5.03s
-```
-
-### New tests (13), targeted run
-
-```
-test read_receipt::tests::verify_receipt_accepts_matching_body_and_head ... ok
-test read_receipt::tests::verify_receipt_rejects_hash_mismatch_forgery_hazard ... ok
-test read_receipt::tests::verify_receipt_rejects_head_mismatch ... ok
-test read_receipt::tests::verify_receipt_rejects_missing_revision_seq ... ok
-test read_receipt::tests::record_verified_roundtrips_and_persists ... ok
-test push_client::tests::divergent_baseline_absent_note_recovers_via_verified_receipt_not_forged_baseline ... ok
-test push_client::tests::hash_mismatched_refetch_mints_no_baseline ... ok
-test push_client::tests::record_verified_receipt_gates_on_the_body_hash ... ok
-test materializer::tests::noop_identical_records_base_seq_r4 ... ok
-test materializer::tests::preserve_local_edit_never_records_base_seq_r2 ... ok
-test materializer::tests::write_with_change_seq_names_stash_with_real_seq_r5 ... ok
-test materializer::tests::unknown_ancestry_preserves_both_sides_r6 ... ok
-test materializer::tests::server_lines_contained_in_local_r6 ... ok
-test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 461 filtered out; finished in 0.00s
-```
-
-### Red-on-old demonstration (R4 hole)
-
-With the R4 recording temporarily neutralized (reproducing the pre-fix arm), the
-R4 regression test fails exactly as the deadlock predicts:
+With the R4 recording temporarily neutralized (reproducing the pre-fix arm), the R4
+regression test fails exactly as the deadlock predicts:
 
 ```
 thread 'materializer::tests::noop_identical_records_base_seq_r4' panicked at src/materializer.rs:3128:9:
@@ -209,21 +255,22 @@ assertion `left == right` failed: R4: an already-identical note must still earn 
 test result: FAILED. 0 passed; 1 failed; ...
 ```
 
-The R1 receipt tests are red-on-old structurally: they reference `read_receipt`
-and `with_read_receipt_store`, which do not exist on the pre-fix tree, so the
-test module does not compile against it.
+The R1 receipt tests are red-on-old structurally: they reference `read_receipt` and
+`with_read_receipt_store`, which do not exist on the pre-fix tree, so the test
+module does not compile against it.
 
 ---
 
 ## Acceptance checklist
 
 - [x] Every requirement R1-R8 has a row with exact file:line evidence (table above; R6 = PARTIAL with reason).
-- [x] A test proves a divergent baseline-absent note recovers via a VERIFIED receipt and NOT via a forged baseline: `push_client::tests::divergent_baseline_absent_note_recovers_via_verified_receipt_not_forged_baseline` (asserts `base_seq == Some(77)` AND a receipt bound to the verified body hash AND the local edit preserved byte-for-byte) + `hash_mismatched_refetch_mints_no_baseline` (fail-closed on a bad body).
-- [x] A test proves the R2/preserve branch never records: `materializer::tests::preserve_local_edit_never_records_base_seq_r2`.
-- [x] A test proves an unknown-ancestry note preserves both sides: `materializer::tests::unknown_ancestry_preserves_both_sides_r6`.
-- [x] `cargo build` and `cargo test` green with pasted output (471 passed, 0 failed).
-- [x] Regression tests fail on the old code for each fixed gap (R4 demonstrated above; R1 structurally).
+- [x] A test proves a divergent baseline-absent note recovers via a VERIFIED receipt and NOT via a forged baseline: `push_client::tests::divergent_baseline_absent_note_recovers_via_verified_receipt_not_forged_baseline` + `hash_mismatched_refetch_mints_no_baseline` (fail-closed on a bad body). Both re-run green this leg.
+- [x] A test proves the R2/preserve branch never records: `materializer::tests::preserve_local_edit_never_records_base_seq_r2`. Re-run green.
+- [x] A test proves an unknown-ancestry note preserves both sides: `materializer::tests::unknown_ancestry_preserves_both_sides_r6`. Re-run green.
+- [x] `cargo build` and `cargo test` green with pasted output (471 passed, 0 failed, 3 ignored) -- INDEPENDENTLY re-run this leg, not trusted from prior report.
+- [x] Regression tests fail on the old code for each fixed gap (R4 demonstrated; R1 structurally).
 - [x] NO push, NO merge, NO binary distribution.
+- [!] `cargo test` against THIS worktree = IMPOSSIBLE (wrong repo, no toolchain). BLOCKED-ENV, see B1/B2. Deliverable verified on the correct repo instead.
 
 ---
 
@@ -231,11 +278,12 @@ test module does not compile against it.
 
 - The fleet-wide WRITER FENCE before rollout. GPT-5.6 proved there is no safe fix ordering without one: a rolling deploy leaves a window where an old client edits an uncovered note and re-mints the deadlock.
 - Building, signing, and distributing the new daemon AppImage to link / icarus / trinity / neo.
+- The dispatcher's "rsync to link" verify step (B3): a live-host action, and pointed at the wrong repo until B1 is fixed.
 
 ---
 
 ## Open decisions flagged for the owner
 
-1. **R6 scope.** I implemented the content-level containment function + a non-destructive safety signal, and rely on the existing unconditional preserve-both for unknown ancestry (strictly safer than containment). I deliberately did NOT gate the known-ancestry (R2) local-wins push on line-containment, because that would force a conflict on every routine in-line edit (a regression storm). If the owner wants an active containment GATE that downgrades to preserve-both on the KNOWN-ancestry path too, that is a larger behavioural change and should be its own reviewed ticket.
-2. **Forgery hazard at the Accepted-push path** (`push_client.rs:761-765`, records `server_seq` when `server_hash` is absent). This burn did not change it: on Accepted the daemon holds the exact bytes it sent, so it is verified-by-construction, and the R1 hazard GPT-5.6 named was specifically the 409 "record a number without the body" path, which the new receipt gate closes. If the owner wants ALL base_seq recording routed through the verified-receipt choke point, that is a follow-up.
-3. **Dispatcher repo mapping** (B1): point `sync-conv-*` / vaultsync burns at `vault-sync`, not `nexus-sync`.
+1. **Dispatcher repo mapping (B1, PRIMARY).** Point `sync-conv-*` / vaultsync burns at `vault-sync`, not `nexus-sync`. This is the sole reason the mechanical verify keeps returning RED for a ticket whose code is green. Third burn to hit it (TKT-cc4ede6b, then this ticket x2).
+2. **R6 scope.** Content-level containment function + non-destructive safety signal implemented; relies on the existing unconditional preserve-both for unknown ancestry (strictly safer than containment). Did NOT gate the known-ancestry (R2) local-wins push on line-containment (would force a conflict on every routine in-line edit -- a regression storm). An active containment GATE on the known-ancestry path would be a larger behavioural change: its own reviewed ticket.
+3. **Forgery hazard at the Accepted-push path** (`push_client.rs:761-765`, records `server_seq` when `server_hash` is absent). Not changed: on Accepted the daemon holds the exact bytes it sent (verified-by-construction); the R1 hazard GPT-5.6 named was the 409 "record a number without the body" path, which the new receipt gate closes. Routing ALL base_seq recording through the verified-receipt choke point is a follow-up.
