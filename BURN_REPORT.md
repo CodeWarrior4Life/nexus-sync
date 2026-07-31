@@ -9,7 +9,63 @@
 
 ---
 
-## Status: BLOCKED-ENV (dispatcher verify mis-targeted) + PARKED AWAITING-OWNER
+## Status: CODE DELIVERABLE ACCEPTED (owner-approved) + RE-PARKED AWAITING-OWNER at the ROLLOUT gate
+
+**Latest — 2026-07-31, owner-approval leg (this leg).** The owner approved
+continuing past the parked step (OWNER RESPONSE 2026-07-31 13:31Z, BINDING:
+"Approve. Continue past the parked step accordingly. Work already committed on
+the branch stands; do not redo it. If another owner-gated step is reached, park
+awaiting-owner again as before.").
+
+Actions this leg, in order:
+
+1. **Independently re-verified the deliverable GREEN** (did NOT trust the prior
+   report). Re-ran the full suite AND the acceptance-critical regression tests by
+   exact name in the build container this leg:
+   - `cargo test --lib` → **471 passed; 0 failed; 3 ignored** (exit 0).
+   - 9 acceptance tests by name → **9 passed; 0 failed** (exit 0): the R1
+     verified-receipt recovery + no-forged-baseline-on-hash-mismatch, R2 preserve
+     never records, R4 noop-identical earns baseline, R5 real-seq stash naming,
+     R6 server-contained + unknown-ancestry-preserves-both.
+2. **Code deliverable = ACCEPTED.** Per the owner, the work committed at
+   `0ef7e0c` on `whetstone/sync-conv-client-receipt` in the `vault-sync` worktree
+   stands and is not redone. The R1–R8 review + fix + tests (the entire non-fleet
+   scope of this burn) are complete and verified.
+3. **RE-PARKED at the next owner-gated step**, exactly as the owner instructed.
+   The two steps that remain are BOTH owner-gated live-fleet operations, and this
+   burn has neither the tooling nor version/ordering/rollback specifics (a
+   one-word "Approve" to a gate nudge does not authorize improvising them):
+   - **(next) WRITER FENCE** — an operational fleet-wide fence over live clients
+     for the rollout window (coordination across link/icarus/trinity/neo + the
+     Nexus server; not a code change on this branch). GPT-5.6 proved it MUST
+     precede rollout or a mid-upgrade old client re-mints the deadlock.
+   - **(then) BUILD/SIGN/DISTRIBUTE the AppImage** — `scripts/upload-to-nexus.sh`
+     (stage signed release; HARD-GATE signature verify) → `scripts/promote-nexus.sh`
+     (flip `is_current=TRUE` so the fleet auto-updater serves it). Needs
+     `NEXUS_CI_TOKEN` + a signed build; touches live release infra + all 4 hosts.
+
+I did NOT run the fence or the deploy: guessing past an irreversible,
+outward-facing production step is exactly what D8 and the ticket ("NEVER guess
+past an irreversible step") forbid, and the owner explicitly said to re-park at
+the next owner-gated step.
+
+### One-line owner action (updated)
+
+The code is done, accepted, and re-verified green — proceed to ROLLOUT in this
+mandatory order: **(1)** raise the fleet-wide WRITER FENCE across
+link/icarus/trinity/neo; **(2)** build+sign the daemon AppImage and ship via
+`scripts/upload-to-nexus.sh linux-x86_64 <tag>` then
+`scripts/promote-nexus.sh linux-x86_64 <tag>` (needs `NEXUS_CI_TOKEN`); **(3)**
+lift the fence once every host reports the new version. Fix branch:
+`whetstone/sync-conv-client-receipt` @ `0ef7e0c` in
+`/var/home/cyril/Burns/TKT-f74edf99-vault-sync` (base `c7853bc`). NB the
+dispatcher verify still needs pointing at `vault-sync` not `nexus-sync` (B1).
+
+---
+
+## Prior-leg status (superseded by the owner-approval leg above; kept for the audit trail)
+
+### Status: BLOCKED-ENV (dispatcher verify mis-targeted) + PARKED AWAITING-OWNER
 
 Read this first. There are two separate facts and prior reports blurred them:
 
