@@ -1,6 +1,10 @@
 # Nexus Sync (Obsidian plugin)
 
-Sync your vault with Obsidian Nexus server. Pull and push notes, real-time change notifications, conflict resolution.
+> **DISTRIBUTION SHELL ONLY — READ BEFORE FOLLOWING ANY POINTER (2026-08-08 audit).**
+> This repo exists solely as a BRAT install target (Phase A3 of S449) and its release is **frozen at v0.1.0** while the live plugin is at 0.2.7. Canonical plugin source: **`CodeWarrior4Life/obsidian-nexus-sync`** (NOT the Nexus monorepo copy named below, which is divergent and stuck at 0.1.0). The primary update channel is the Nexus server plugin registry (auto-install since v0.2.4); this BRAT channel is vestigial and kept only because install URLs exist in the wild.
+> Naming note: despite the id `nexus-sync`, this plugin is ONE vault-scoped subscriber of **Nexus Sync**, which is a multi-root folder-sync system (daemon `[[sync_roots]]`, route-relative wire paths) — the plugin speaks the legacy single-vault device API (:5555), not the multi-root subscriber lane. That legacy lane was DEPRECATED server-side 2026-08-02 (TKT-f91e840b; device rows revoked, endpoints emit Deprecation/Sunset headers, Phase-2 removal planned) — the fleet propagation path is the Nexus Sync daemon.
+
+Sync your vault with Nexus server. Pull and push notes, real-time change notifications, conflict resolution.
 
 ## Install (BRAT)
 
